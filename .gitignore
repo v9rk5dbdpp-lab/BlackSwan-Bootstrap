@@ -1,0 +1,10 @@
+*.log
+*.tmp
+*.bak
+*.swp
+
+.vscode/settings.json
+
+reports/
+
+test-*.bin
