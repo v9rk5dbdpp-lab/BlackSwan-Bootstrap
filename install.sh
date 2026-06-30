@@ -2,13 +2,16 @@
 
 set -e
 
+REPO_URL="https://github.com/v9rk5dbdpp-lab/BlackSwan-Bootstrap.git"
+RAW_URL="https://raw.githubusercontent.com/v9rk5dbdpp-lab/BlackSwan-Bootstrap/main"
+
 clear
 
 echo "=========================================="
-echo "       BlackSwan Bootstrap v1.0"
+echo "       BlackSwan Bootstrap v1.1"
 echo "=========================================="
 echo
-echo "1) Проверить сервер"
+echo "1) Quick Start: проверить новый VPS"
 echo "2) Установить 3x-ui"
 echo "3) Обновить Bootstrap"
 echo "4) О проекте"
@@ -20,20 +23,32 @@ read -p "Выберите пункт: " CHOICE
 case $CHOICE in
 
 1)
-    bash whitelist-test.sh
-    ;;
+    echo
+    echo "Запуск проверки VPS..."
+    echo
 
-2)
-    if [ -f install-3x-ui.sh ]; then
-        bash install-3x-ui.sh
+    if [ -f "./whitelist-test.sh" ]; then
+        bash ./whitelist-test.sh
     else
-        echo
-        echo "install-3x-ui.sh пока отсутствует."
+        curl -fsSL "$RAW_URL/whitelist-test.sh" -o /tmp/whitelist-test.sh
+        bash /tmp/whitelist-test.sh
     fi
     ;;
 
+2)
+    echo
+    echo "Установка 3x-ui пока будет добавлена следующим модулем."
+    echo
+    ;;
+
 3)
-    git pull
+    echo
+    echo "Обновление Bootstrap..."
+    if [ -d ".git" ]; then
+        git pull
+    else
+        echo "Этот режим работает только внутри клонированного репозитория."
+    fi
     ;;
 
 4)
@@ -41,12 +56,14 @@ case $CHOICE in
     echo "BlackSwan Bootstrap"
     echo
     echo "Назначение:"
-    echo "Быстрая проверка VPS перед установкой VPN."
+    echo "Быстро проверить новый VPS перед установкой VPN."
     echo
-    echo "Этапы:"
-    echo "✔ Проверка HTTP"
-    echo "✔ Проверка скорости"
-    echo "✔ Установка 3x-ui"
+    echo "Главные проверки:"
+    echo "- доступность HTTP"
+    echo "- примерная задержка"
+    echo "- примерная скорость скачивания"
+    echo
+    echo "Стартовая страница специально оставлена простой."
     ;;
 
 5)
