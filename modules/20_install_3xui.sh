@@ -4,11 +4,6 @@ set -e
 
 XUI_INSTALL_URL="https://raw.githubusercontent.com/MHSanaei/3x-ui/master/install.sh"
 
-pause_before_return() {
-    echo
-    read -p "Нажмите Enter, чтобы вернуться в меню..." _ || true
-}
-
 print_header() {
     echo
     echo "========== Установка 3x-ui =========="
@@ -104,7 +99,6 @@ if xui_exists; then
     echo "✅ 3x-ui уже установлен. Повторная установка пропущена."
     show_xui_status
     show_panel_hint
-    pause_before_return
     exit 0
 fi
 
@@ -117,4 +111,3 @@ fi
 
 show_xui_status
 show_panel_hint
-pause_before_return
