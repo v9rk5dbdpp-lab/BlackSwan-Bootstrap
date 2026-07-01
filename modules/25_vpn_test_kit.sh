@@ -3,7 +3,7 @@
 set -euo pipefail
 
 VERSION="v1.3"
-RAW_URL="https://raw.githubusercontent.com/v9rk5dbdpp-lab/BlackSwan-Bootstrap/v1.3-vpn-test-kit"
+NETWORK_TEST_URL="https://raw.githubusercontent.com/v9rk5dbdpp-lab/BlackSwan-Bootstrap/v1.2.1-quickstart-test/whitelist-test.sh"
 XUI_INSTALL_URL="https://raw.githubusercontent.com/MHSanaei/3x-ui/master/install.sh"
 REPORT_DIR="/opt/blackswan-bootstrap"
 REPORT_FILE="$REPORT_DIR/vpn-test-kit-report.txt"
@@ -34,7 +34,7 @@ require_ubuntu() {
 }
 
 install_dependencies() {
-    local packages=(curl wget ca-certificates unzip tar socat cron jq lsb-release ufw nginx)
+    local packages=(curl wget ca-certificates unzip tar socat cron jq lsb-release ufw nginx openssl net-tools iproute2 dnsutils htop nano)
     local missing=()
 
     for package in "${packages[@]}"; do
@@ -53,6 +53,23 @@ install_dependencies() {
     apt install -y "${missing[@]}"
 }
 
+enable_network_tuning() {
+    echo
+    echo "========== Network tuning =========="
+
+    cat > /etc/sysctl.d/99-blackswan-vpn.conf <<EOF
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.ipv4.ip_forward=1
+net.ipv4.tcp_fastopen=3
+EOF
+
+    sysctl --system >/dev/null || true
+
+    echo "✅ sysctl profile applied"
+    echo "TCP congestion: $(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo unknown)"
+}
+
 install_network_test() {
     echo
     echo "========== Network Test =========="
@@ -60,12 +77,8 @@ install_network_test() {
     local tmp_script
     tmp_script="/tmp/blackswan-network-test.sh"
 
-    if [ -f "./whitelist-test.sh" ]; then
-        bash ./whitelist-test.sh
-    else
-        curl -fsSL "$RAW_URL/whitelist-test.sh" -o "$tmp_script"
-        bash "$tmp_script"
-    fi
+    curl -fsSL "$NETWORK_TEST_URL" -o "$tmp_script"
+    bash "$tmp_script"
 }
 
 xui_exists() {
@@ -95,22 +108,51 @@ install_3xui() {
     fi
 }
 
-show_ports_hint() {
+prepare_firewall_hints() {
     echo
-    echo "========== Порты для проверки =========="
+    echo "========== Firewall / ports =========="
     echo
-    echo "Минимально нужны входящие порты:"
-    echo "- TCP 80  : Network Test"
-    echo "- TCP порт панели 3x-ui: покажет установщик или команда x-ui settings"
-    echo "- TCP 443 / 8443 / 2053 / 10443: будущие VPN inbound-тесты"
+    echo "Для работы VPN-тестов обычно нужны входящие TCP-порты:"
+    echo "- 80    : Network Test"
+    echo "- 443   : Reality / TLS tests"
+    echo "- 8443  : alternate Reality / panel tests"
+    echo "- 2053  : alternate Reality tests"
+    echo "- 10443 : alternate Reality tests"
+    echo "- порт панели 3x-ui: смотреть через x-ui settings"
     echo
-    echo "Если используется cloud security group, открой эти порты у провайдера."
+    echo "Скрипт НЕ включает UFW насильно, чтобы не закрыть SSH."
+    echo "Если UFW уже active, добавляем безопасные allow rules."
 
     if command -v ufw >/dev/null 2>&1; then
-        echo
-        echo "Локальный UFW статус:"
+        if ufw status | grep -qi "Status: active"; then
+            ufw allow OpenSSH >/dev/null 2>&1 || true
+            ufw allow 80/tcp >/dev/null 2>&1 || true
+            ufw allow 443/tcp >/dev/null 2>&1 || true
+            ufw allow 8443/tcp >/dev/null 2>&1 || true
+            ufw allow 2053/tcp >/dev/null 2>&1 || true
+            ufw allow 10443/tcp >/dev/null 2>&1 || true
+            echo "✅ UFW active: базовые VPN-порты разрешены"
+        else
+            echo "✅ UFW не активен"
+        fi
         ufw status || true
     fi
+}
+
+show_xui_access() {
+    echo
+    echo "========== 3x-ui access =========="
+    echo
+    echo "Команды для панели:"
+    echo "x-ui"
+    echo "x-ui settings"
+    echo
+    echo "Что нужно включить/создать в 3x-ui вручную:"
+    echo "1) VLESS"
+    echo "2) REALITY"
+    echo "3) TCP"
+    echo "4) flow: xtls-rprx-vision, если нужен Vision"
+    echo "5) subscription link для клиента"
 }
 
 write_report() {
@@ -124,11 +166,13 @@ Generated UTC: $(date -u)
 Public IP: $public_ip
 Hostname: $(hostname)
 
-Installed/prepared:
+Prepared:
 - Network Test page
 - nginx
-- 3x-ui / x-ui check
-- base tools: curl wget unzip tar socat cron jq ufw
+- 3x-ui / Xray panel
+- base tools: curl wget unzip tar socat cron jq openssl ufw dnsutils htop nano
+- network tuning: BBR, fq, ip_forward
+- firewall hints / UFW safe allow if UFW was already active
 
 Open Network Test:
 http://$public_ip/
@@ -140,9 +184,10 @@ systemctl status x-ui --no-pager
 systemctl status nginx --no-pager
 ss -tulpn
 ufw status
+cat /etc/sysctl.d/99-blackswan-vpn.conf
 
 Next manual step:
-Create VLESS REALITY inbound in 3x-ui and test Wi-Fi / MTS / Tele2.
+Open 3x-ui, create VLESS REALITY inbound, copy subscription/config, test Wi-Fi / MTS / Tele2.
 EOF
 
     echo
@@ -164,15 +209,17 @@ print_final() {
     echo "x-ui settings"
     echo "systemctl status x-ui --no-pager"
     echo
-    echo "Следующий шаг: открыть панель 3x-ui, создать VLESS REALITY inbound и тестировать Wi-Fi / MTS / Tele2."
+    echo "Теперь сервер готов для создания VPN-конфигураций и подписок в 3x-ui."
 }
 
 print_header
 require_root
 require_ubuntu
 install_dependencies
+enable_network_tuning
 install_network_test
 install_3xui
-show_ports_hint
+prepare_firewall_hints
+show_xui_access
 write_report
 print_final
