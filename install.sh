@@ -28,7 +28,7 @@ while true; do
     echo "=========================================="
     echo
     echo "1) Quick Start: проверить новый VPS"
-    echo "2) Full VPN Server Setup: подготовить сервер для VPN"
+    echo "2) VPN Setup Wizard: тест + 3x-ui + ссылка панели"
     echo "3) Установить только 3x-ui"
     echo "4) Обновить Bootstrap"
     echo "5) О проекте"
@@ -54,9 +54,9 @@ while true; do
 
     2)
         echo
-        echo "Запуск Full VPN Server Setup..."
+        echo "Запуск VPN Setup Wizard..."
         echo
-        run_module "./modules/25_vpn_test_kit.sh" "$RAW_URL/modules/25_vpn_test_kit.sh"
+        run_module "./modules/26_vpn_setup_wizard.sh" "$RAW_URL/modules/26_vpn_setup_wizard.sh"
         ;;
 
     3)
@@ -86,7 +86,7 @@ while true; do
         echo "Текущие возможности:"
         echo "- проверка нового VPS"
         echo "- Network Test HTTP-страница"
-        echo "- Full VPN Server Setup для подготовки сервера к VPN-конфигам и подпискам"
+        echo "- VPN Setup Wizard: тест сервера, установка 3x-ui и ссылка панели"
         echo "- идемпотентная установка 3x-ui"
         echo
         echo "Главный принцип: один модуль = одна задача."
