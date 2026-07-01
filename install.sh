@@ -4,75 +4,97 @@ set -e
 
 REPO_URL="https://github.com/v9rk5dbdpp-lab/BlackSwan-Bootstrap.git"
 RAW_URL="https://raw.githubusercontent.com/v9rk5dbdpp-lab/BlackSwan-Bootstrap/main"
+VERSION="v1.2"
 
-clear
+run_module() {
+    local module_path="$1"
+    local module_url="$2"
 
-echo "=========================================="
-echo "       BlackSwan Bootstrap v1.1"
-echo "=========================================="
-echo
-echo "1) Quick Start: проверить новый VPS"
-echo "2) Установить 3x-ui"
-echo "3) Обновить Bootstrap"
-echo "4) О проекте"
-echo "5) Выход"
-echo
-
-read -p "Выберите пункт: " CHOICE
-
-case $CHOICE in
-
-1)
-    echo
-    echo "Запуск проверки VPS..."
-    echo
-
-    if [ -f "./whitelist-test.sh" ]; then
-        bash ./whitelist-test.sh
+    if [ -f "$module_path" ]; then
+        bash "$module_path"
     else
-        curl -fsSL "$RAW_URL/whitelist-test.sh" -o /tmp/whitelist-test.sh
-        bash /tmp/whitelist-test.sh
+        local tmp_module
+        tmp_module="/tmp/$(basename "$module_path")"
+        curl -fsSL "$module_url" -o "$tmp_module"
+        bash "$tmp_module"
     fi
-    ;;
+}
 
-2)
-    echo
-    echo "Установка 3x-ui пока будет добавлена следующим модулем."
-    echo
-    ;;
+while true; do
+    clear
 
-3)
+    echo "=========================================="
+    echo "       BlackSwan Bootstrap $VERSION"
+    echo "=========================================="
     echo
-    echo "Обновление Bootstrap..."
-    if [ -d ".git" ]; then
-        git pull
-    else
-        echo "Этот режим работает только внутри клонированного репозитория."
-    fi
-    ;;
+    echo "1) Quick Start: проверить новый VPS"
+    echo "2) Установить 3x-ui"
+    echo "3) Обновить Bootstrap"
+    echo "4) О проекте"
+    echo "5) Выход"
+    echo
 
-4)
-    echo
-    echo "BlackSwan Bootstrap"
-    echo
-    echo "Назначение:"
-    echo "Быстро проверить новый VPS перед установкой VPN."
-    echo
-    echo "Главные проверки:"
-    echo "- доступность HTTP"
-    echo "- примерная задержка"
-    echo "- примерная скорость скачивания"
-    echo
-    echo "Стартовая страница специально оставлена простой."
-    ;;
+    read -p "Выберите пункт: " CHOICE
 
-5)
-    exit
-    ;;
+    case $CHOICE in
 
-*)
+    1)
+        echo
+        echo "Запуск проверки VPS..."
+        echo
+
+        if [ -f "./whitelist-test.sh" ]; then
+            bash ./whitelist-test.sh
+        else
+            curl -fsSL "$RAW_URL/whitelist-test.sh" -o /tmp/whitelist-test.sh
+            bash /tmp/whitelist-test.sh
+        fi
+        ;;
+
+    2)
+        echo
+        echo "Запуск модуля установки 3x-ui..."
+        echo
+        run_module "./modules/20_install_3xui.sh" "$RAW_URL/modules/20_install_3xui.sh"
+        ;;
+
+    3)
+        echo
+        echo "Обновление Bootstrap..."
+        if [ -d ".git" ]; then
+            git pull
+        else
+            echo "Этот режим работает только внутри клонированного репозитория."
+        fi
+        ;;
+
+    4)
+        echo
+        echo "BlackSwan Bootstrap"
+        echo
+        echo "Назначение:"
+        echo "Быстро подготовить чистый Ubuntu VPS под проекты BlackSwan Lab."
+        echo
+        echo "Текущие возможности:"
+        echo "- проверка нового VPS"
+        echo "- whitelist-test HTTP-страница"
+        echo "- примерная задержка"
+        echo "- примерная скорость скачивания"
+        echo "- идемпотентная установка 3x-ui"
+        echo
+        echo "Главный принцип: один модуль = одна задача."
+        ;;
+
+    5)
+        exit
+        ;;
+
+    *)
+        echo
+        echo "Неверный выбор."
+        ;;
+    esac
+
     echo
-    echo "Неверный выбор."
-    ;;
-
-esac
+    read -p "Нажмите Enter, чтобы вернуться в меню..." _
+done
