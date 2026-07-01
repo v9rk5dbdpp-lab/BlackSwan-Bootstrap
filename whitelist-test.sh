@@ -1,328 +1,159 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
+VERSION="v1.2.1"
 WEB_ROOT="/var/www/html"
-APP_DIR="$WEB_ROOT/blackswan"
+TEST_DIR="$WEB_ROOT/blackswan"
 INDEX_FILE="$WEB_ROOT/index.html"
-REPORT_FILE="$APP_DIR/report.txt"
+REPORT_FILE="$TEST_DIR/report.txt"
+BACKUP_FILE="$WEB_ROOT/index.html.blackswan-backup"
 
-print_header() {
-    echo "===================================="
-    echo "   BlackSwan Bootstrap Quick Start"
-    echo "===================================="
-    echo
-}
+echo "===================================="
+echo "   BlackSwan Bootstrap $VERSION"
+echo "   Quick Start VPS Test"
+echo "===================================="
+echo
 
-require_root() {
-    if [ "$EUID" -ne 0 ]; then
-        echo "❌ Запустите скрипт от root."
-        exit 1
+if [ "$EUID" -ne 0 ]; then
+    echo "❌ Запустите от root: sudo bash whitelist-test.sh"
+    exit 1
+fi
+
+if ! grep -qi ubuntu /etc/os-release; then
+    echo "❌ Поддерживается только Ubuntu."
+    exit 1
+fi
+
+. /etc/os-release
+echo "✅ Ubuntu $VERSION_ID"
+
+NEED_APT=0
+for pkg in nginx curl ca-certificates; do
+    if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+        NEED_APT=1
     fi
-}
+done
 
-require_ubuntu() {
-    if ! grep -qi ubuntu /etc/os-release; then
-        echo "❌ Поддерживается только Ubuntu."
-        exit 1
-    fi
-
-    . /etc/os-release
-    echo "✅ Ubuntu $VERSION_ID"
-}
-
-check_internet() {
-    if curl -fsS --max-time 5 https://api.ipify.org >/dev/null 2>&1; then
-        echo "✅ Интернет доступен"
-    else
-        echo "❌ Нет доступа в интернет или недоступен внешний IP-сервис."
-        exit 1
-    fi
-}
-
-install_dependencies() {
-    local packages=(nginx curl ca-certificates)
-    local missing=()
-
-    for package in "${packages[@]}"; do
-        if ! dpkg -s "$package" >/dev/null 2>&1; then
-            missing+=("$package")
-        fi
-    done
-
-    if [ "${#missing[@]}" -eq 0 ]; then
-        echo "✅ Зависимости уже установлены"
-        return
-    fi
-
-    echo "⚠️ Устанавливаем зависимости: ${missing[*]}"
+if [ "$NEED_APT" -eq 1 ]; then
+    echo "⚠️ Устанавливаем nginx/curl/ca-certificates"
     apt update
-    apt install -y "${missing[@]}"
-}
+    apt install -y nginx curl ca-certificates
+else
+    echo "✅ Зависимости уже установлены"
+fi
 
-get_public_ip() {
-    curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || \
-    curl -4 -fsS --max-time 5 https://ifconfig.me 2>/dev/null || \
-    hostname -I | awk '{print $1}'
-}
+mkdir -p "$TEST_DIR"
 
-get_ipinfo_value() {
-    local key="$1"
-    local json="$2"
-    echo "$json" | grep -oP '"'"$key"'":\s*"\K[^"]+' || echo "unknown"
-}
+if [ -f "$INDEX_FILE" ] && ! grep -q "BlackSwan Bootstrap" "$INDEX_FILE" && [ ! -f "$BACKUP_FILE" ]; then
+    cp "$INDEX_FILE" "$BACKUP_FILE"
+    echo "✅ Старый index.html сохранен: $BACKUP_FILE"
+fi
 
-create_test_file() {
-    local file_path="$1"
-    local size_mb="$2"
+PUBLIC_IP=$(curl -4 -fsS --max-time 8 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}' || echo "unknown")
+HOSTNAME_VALUE=$(hostname)
+DATE_NOW=$(date -u)
+IPINFO=$(curl -fsS --max-time 8 https://ipinfo.io/json 2>/dev/null || echo "{}")
+ORG=$(echo "$IPINFO" | grep -oP '"org":\s*"\K[^"]+' || echo "unknown")
+CITY=$(echo "$IPINFO" | grep -oP '"city":\s*"\K[^"]+' || echo "unknown")
+REGION=$(echo "$IPINFO" | grep -oP '"region":\s*"\K[^"]+' || echo "unknown")
+COUNTRY=$(echo "$IPINFO" | grep -oP '"country":\s*"\K[^"]+' || echo "unknown")
 
-    if [ -f "$file_path" ]; then
-        local current_size
-        current_size=$(du -m "$file_path" | awk '{print $1}')
-        if [ "$current_size" -ge "$size_mb" ]; then
-            echo "✅ Тестовый файл уже есть: $(basename "$file_path")"
-            return
-        fi
+create_file() {
+    local mb="$1"
+    local file="$TEST_DIR/test-${mb}mb.bin"
+
+    if [ -f "$file" ]; then
+        echo "✅ test-${mb}mb.bin уже есть"
+    else
+        echo "⚠️ Создаем test-${mb}mb.bin"
+        dd if=/dev/zero of="$file" bs=1M count="$mb" status=none
     fi
-
-    echo "⚠️ Создаем тестовый файл: $(basename "$file_path")"
-    dd if=/dev/urandom of="$file_path" bs=1M count="$size_mb" status=none
 }
 
-backup_foreign_index() {
-    if [ ! -f "$INDEX_FILE" ]; then
-        return
-    fi
+create_file 1
+create_file 10
+create_file 50
 
-    if grep -q "BlackSwan Bootstrap" "$INDEX_FILE"; then
-        return
-    fi
+cat > "$REPORT_FILE" <<EOF
+BlackSwan Bootstrap $VERSION
+Generated UTC: $DATE_NOW
+Public IP: $PUBLIC_IP
+Provider / ASN: $ORG
+Location: $CITY, $REGION, $COUNTRY
+Hostname: $HOSTNAME_VALUE
 
-    local backup_file
-    backup_file="$INDEX_FILE.backup.$(date +%Y%m%d-%H%M%S)"
-    cp "$INDEX_FILE" "$backup_file"
-    echo "⚠️ Существующий index.html сохранен: $backup_file"
-}
+Open:
+http://$PUBLIC_IP/
 
-write_report() {
-    local public_ip="$1"
-    local org="$2"
-    local city="$3"
-    local region="$4"
-    local country="$5"
-    local generated_utc="$6"
-
-    cat > "$REPORT_FILE" <<EOF
-BlackSwan Bootstrap Quick Start Report
-
-Public IP: $public_ip
-Provider / ASN: $org
-Location: $city, $region, $country
-Hostname: $(hostname)
-Generated UTC: $generated_utc
-
-Test URLs:
-http://$public_ip/
-http://$public_ip/blackswan/test-1mb.bin
-http://$public_ip/blackswan/test-10mb.bin
-http://$public_ip/blackswan/test-50mb.bin
+Files:
+http://$PUBLIC_IP/blackswan/test-1mb.bin
+http://$PUBLIC_IP/blackswan/test-10mb.bin
+http://$PUBLIC_IP/blackswan/test-50mb.bin
 EOF
-}
 
-write_index() {
-    local public_ip="$1"
-    local org="$2"
-    local city="$3"
-    local region="$4"
-    local country="$5"
-    local generated_utc="$6"
-
-    cat > "$INDEX_FILE" <<EOF
+cat > "$INDEX_FILE" <<EOF
 <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BlackSwan Bootstrap Quick Start</title>
+<title>BlackSwan Bootstrap VPS Test</title>
 <style>
-body {
-  background: #101820;
-  color: white;
-  font-family: Arial, sans-serif;
-  margin: 0;
-  padding: 24px;
-}
-.card {
-  max-width: 860px;
-  margin: auto;
-  background: #1d2630;
-  padding: 28px;
-  border-radius: 20px;
-  box-shadow: 0 0 25px rgba(0,255,120,.22);
-}
-h1 { font-size: 34px; margin-top: 0; }
-.ok { color: #2ecc71; font-size: 26px; margin: 18px 0; }
-.info { font-size: 17px; margin: 12px 0; line-height: 1.45; }
-button {
-  font-size: 18px;
-  padding: 13px 18px;
-  border: 0;
-  border-radius: 12px;
-  cursor: pointer;
-  margin: 8px 6px 8px 0;
-}
-.result {
-  margin-top: 18px;
-  font-size: 18px;
-  line-height: 1.55;
-  color: #00ff88;
-  word-break: break-word;
-}
-.small { color: #b9c2cc; font-size: 14px; }
-code { background: #101820; padding: 3px 6px; border-radius: 6px; }
+body{margin:0;background:#101820;color:white;font-family:Arial,sans-serif}.wrap{max-width:860px;margin:auto;padding:28px 18px}.card{background:#1d2630;padding:26px;border-radius:22px;box-shadow:0 0 28px rgba(0,255,120,.20)}h1{font-size:34px;margin:0 0 10px}.ok{color:#2ecc71;font-size:26px;margin:18px 0;font-weight:bold}.info{background:#263442;border-radius:14px;padding:14px;font-size:17px;margin:12px 0}.info b{color:#00ff88;word-break:break-word}button,a.btn{display:block;width:100%;box-sizing:border-box;font-size:18px;padding:14px 18px;margin:12px 0;border:0;border-radius:14px;background:#f4f7fb;color:#101820;text-align:center;text-decoration:none}.result{margin-top:18px;font-size:20px;color:#00ff88;line-height:1.5}.small{color:#b8c7d6;font-size:14px;margin-top:18px;line-height:1.5}
 </style>
 </head>
 <body>
-<div class="card">
+<div class="wrap"><div class="card">
 <h1>🦢 BlackSwan Bootstrap</h1>
 <div class="ok">HTTP REACHABLE</div>
-
-<div class="info">🌍 Public IP:<br><b>$public_ip</b></div>
-<div class="info">🏢 Provider / ASN:<br><b>$org</b></div>
-<div class="info">📍 Location:<br><b>$city, $region, $country</b></div>
-<div class="info">🖥 Hostname:<br><b>$(hostname)</b></div>
-<div class="info">🕒 Generated UTC:<br><b>$generated_utc</b></div>
-
-<hr>
-
-<div class="info">Тест скорости с этого устройства до VPS:</div>
-<button onclick="runSpeedTest('test-1mb.bin', 1)">1 MB</button>
-<button onclick="runSpeedTest('test-10mb.bin', 10)">10 MB</button>
-<button onclick="runSpeedTest('test-50mb.bin', 50)">50 MB</button>
-<button onclick="copyResult()">Copy result</button>
-
+<div class="info">🌍 Public IP:<br><b>$PUBLIC_IP</b></div>
+<div class="info">🏢 Provider / ASN:<br><b>$ORG</b></div>
+<div class="info">📍 Location:<br><b>$CITY, $REGION, $COUNTRY</b></div>
+<div class="info">🖥 Hostname:<br><b>$HOSTNAME_VALUE</b></div>
+<div class="info">🕒 Generated UTC:<br><b>$DATE_NOW</b></div>
+<button onclick="runTest(1)">Quick test 1 MB</button>
+<button onclick="runTest(10)">Normal test 10 MB</button>
+<button onclick="runTest(50)">Heavy test 50 MB</button>
+<a class="btn" href="/blackswan/report.txt">Open server report</a>
 <div class="result" id="result">Speed test not started</div>
-
-<p class="small">
-Проверяй отдельно Wi-Fi, MTS, Tele2, Beeline и другие сети. Один результат — одна маленькая монета в копилку эксперимента.
-</p>
-
-<p class="small">
-Report: <code>/blackswan/report.txt</code>
-</p>
-</div>
-
+<div class="small">Запусти тест отдельно через Wi-Fi, MTS, Tele2 и другие сети. Запиши latency и download.</div>
+</div></div>
 <script>
-let lastResult = "";
-
-async function pingOnce() {
-  const start = performance.now();
-  await fetch("/?ping=" + Math.random(), { cache: "no-store" });
-  return Math.round(performance.now() - start);
-}
-
-async function runSpeedTest(fileName, sizeMb) {
-  const result = document.getElementById("result");
-  result.innerHTML = "Testing " + sizeMb + " MB...";
-
-  try {
-    const latency = await pingOnce();
-    const start = performance.now();
-    const response = await fetch("/blackswan/" + fileName + "?cache=" + Math.random(), { cache: "no-store" });
-
-    if (!response.ok) {
-      throw new Error("HTTP " + response.status);
-    }
-
-    const blob = await response.blob();
-    const end = performance.now();
-    const seconds = (end - start) / 1000;
-    const megabits = (blob.size * 8) / 1024 / 1024;
-    const mbps = (megabits / seconds).toFixed(2);
-
-    lastResult = [
-      "BlackSwan VPS test",
-      "IP: $public_ip",
-      "Provider: $org",
-      "Location: $city, $region, $country",
-      "File: " + sizeMb + " MB",
-      "Latency: " + latency + " ms",
-      "Download: " + mbps + " Mbps",
-      "User-Agent: " + navigator.userAgent
-    ].join("\n");
-
-    result.innerHTML =
-      "Latency: " + latency + " ms<br>" +
-      "Download: " + mbps + " Mbps<br>" +
-      "File: " + sizeMb + " MB";
-  } catch (error) {
-    lastResult = "BlackSwan VPS test failed: " + error.message;
-    result.innerHTML = "Test failed: " + error.message;
-  }
-}
-
-async function copyResult() {
-  if (!lastResult) {
-    alert("Сначала запусти тест.");
-    return;
-  }
-  await navigator.clipboard.writeText(lastResult);
-  alert("Result copied.");
+async function runTest(size){
+ const r=document.getElementById('result');
+ r.innerHTML='Testing '+size+' MB...';
+ try{
+  const p0=performance.now();
+  await fetch('/?ping='+Math.random(),{cache:'no-store'});
+  const latency=Math.round(performance.now()-p0);
+  const t0=performance.now();
+  const response=await fetch('/blackswan/test-'+size+'mb.bin?cache='+Math.random(),{cache:'no-store'});
+  const blob=await response.blob();
+  const sec=(performance.now()-t0)/1000;
+  const mbps=((blob.size*8/1024/1024)/sec).toFixed(2);
+  r.innerHTML='Latency: '+latency+' ms<br>Download: '+mbps+' Mbps<br>File: '+size+' MB';
+ }catch(e){r.innerHTML='Test failed: '+e;}
 }
 </script>
 </body>
 </html>
 EOF
-}
 
-start_nginx() {
-    systemctl enable nginx >/dev/null 2>&1
-    systemctl restart nginx
-    echo "✅ Nginx запущен"
-}
+systemctl enable nginx >/dev/null 2>&1 || true
+systemctl restart nginx
 
-print_summary() {
-    local public_ip="$1"
+if systemctl is-active --quiet nginx; then
+    echo "✅ nginx запущен"
+else
+    echo "❌ nginx не запустился"
+    systemctl --no-pager status nginx | sed -n '1,12p' || true
+    exit 1
+fi
 
-    echo
-    echo "========== Готово =========="
-    echo
-    echo "Открой на телефоне:"
-    echo "http://$public_ip"
-    echo
-    echo "Прямые тестовые файлы:"
-    echo "http://$public_ip/blackswan/test-1mb.bin"
-    echo "http://$public_ip/blackswan/test-10mb.bin"
-    echo "http://$public_ip/blackswan/test-50mb.bin"
-    echo
-    echo "Отчет на сервере:"
-    echo "$REPORT_FILE"
-}
-
-print_header
-require_root
-require_ubuntu
-check_internet
-install_dependencies
-
-mkdir -p "$APP_DIR"
-
-PUBLIC_IP="$(get_public_ip)"
-HOSTNAME="$(hostname)"
-DATE_NOW="$(date -u)"
-IPINFO="$(curl -fsS --max-time 5 https://ipinfo.io/json 2>/dev/null || echo '{}')"
-
-ORG="$(get_ipinfo_value org "$IPINFO")"
-CITY="$(get_ipinfo_value city "$IPINFO")"
-COUNTRY="$(get_ipinfo_value country "$IPINFO")"
-REGION="$(get_ipinfo_value region "$IPINFO")"
-
-create_test_file "$APP_DIR/test-1mb.bin" 1
-create_test_file "$APP_DIR/test-10mb.bin" 10
-create_test_file "$APP_DIR/test-50mb.bin" 50
-
-backup_foreign_index
-write_report "$PUBLIC_IP" "$ORG" "$CITY" "$REGION" "$COUNTRY" "$DATE_NOW"
-write_index "$PUBLIC_IP" "$ORG" "$CITY" "$REGION" "$COUNTRY" "$DATE_NOW"
-start_nginx
-print_summary "$PUBLIC_IP"
+echo
+echo "========== ГОТОВО =========="
+echo "Открой на телефоне:"
+echo "http://$PUBLIC_IP/"
+echo
+echo "Если страница не открывается, открой входящий TCP 80 в firewall/security group."
